@@ -9,7 +9,7 @@ app = Flask(__name__)
 # Securely links to your new persistent Render PostgreSQL Database URL link
 app.config.update(
     SECRET_KEY=secrets.token_hex(16),
-    SQLALCHEMY_DATABASE_URI=os.environ.get('DATABASE_URL', 'sqlite:///saas_fallback.db'),
+    SQLALCHEMY_DATABASE_URI=os.environ.get('postgresql://aisaasdb_user:z5GyV7u7ppPCZqqa0DoSH3TjjhWDgTnz@dpg-d94kar67r5hc73f89ks0-a/aisaasdb', 'sqlite:///saas_fallback.db'),
     SQLALCHEMY_TRACK_MODIFICATIONS=False
 )
 db = SQLAlchemy(app)
