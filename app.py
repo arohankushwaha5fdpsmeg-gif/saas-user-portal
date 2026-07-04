@@ -11,15 +11,117 @@ db = SQLAlchemy(app)
 lm = LoginManager(app)
 lm.login_view = 'login'
 
-# HARDCODED LIVE VALUES
+# HARDCODED LIVE VALUES PROVIDED BY USER
 stripe.api_key = "sk_test_51Tke3WRsVgVw9kTXB7nWOrvb1jGUnCuTAqwgcX5OA7r7hxVh534pcyg5Y0D989GwT4CQmwsfN9SezJyb8gEdjXDF00OEi2JoDS"
-AI_ENGINE_URL = "https://onrender.com"
+AI_ENGINE_URL = "https://ai-backend-engine.onrender.com"
 
-CSS = "body{font-family:sans-serif;background:#0f172a;color:#fff;max-width:600px;margin:40px auto;padding:10px}.card{background:#1e293b;padding:20px;border-radius:8px;margin-bottom:15px}input,textarea{width:100%;padding:10px;margin:8px 0;background:#0f172a;color:#fff;border:1px solid #475569;border-radius:6px;box-sizing:border-box}button{width:100%;padding:12px;background:#38bdf8;border:none;color:#0f172a;font-weight:bold;border-radius:6px;cursor:pointer}pre{background:#020617;padding:15px;color:#34d399;overflow-x:auto;border-radius:6px}"
+# REMOVED F-STRING STYLING LAYER TO PREVENT BRACE SYNTAX ERRORS
+INDEX_HTML = """
+<!DOCTYPE html>
+<html>
+<head>
+    <style>
+        body{font-family:sans-serif;background:#0f172a;color:#fff;max-width:600px;margin:40px auto;padding:10px}
+        .card{background:#1e293b;padding:20px;border-radius:8px;margin-bottom:15px}
+        input,textarea{width:100%;padding:10px;margin:8px 0;background:#0f172a;color:#fff;border:1px solid #475569;border-radius:6px;box-sizing:border-box}
+        button{width:100%;padding:12px;background:#38bdf8;border:none;color:#0f172a;font-weight:bold;border-radius:6px;cursor:pointer}
+        pre{background:#020617;padding:15px;color:#34d399;overflow-x:auto;border-radius:6px}
+    </style>
+    <title>AI Studio</title>
+</head>
+<body>
+    <div class='card'>
+        <a href='/logout' style='color:#94a3b8;float:right;'>Logout</a>
+        <h2>AI Dashboard Pro 🚀</h2>
+        <p>Account Profile: <b>{{ current_user.username }}</b> | Balance: 
+            <span style='color:#38bdf8'>
+                {% if current_user.is_premium %}👑 Premium Access{% else %}{{ current_user.tokens }} / 15 Available{% endif %}
+            </span>
+        </p>
+        {% if not current_user.is_premium and current_user.tokens <= 0 %}
+            <div style='background:#7c3aed;padding:10px;border-radius:6px;text-align:center;'>
+                Tokens exhausted. 25h lock active. Upgrade via Stripe.
+            </div>
+        {% endif %}
+    </div>
+    <div class='card'>
+        <textarea id='p' placeholder='Describe function requirements...'></textarea>
+        <button onclick='gen()'>Process Request Matrix</button>
+        <p id='s' style='color:#fbbf24;display:none;text-align:center;'>Processing custom backprop layers...</p>
+    </div>
+    <div class='card'>
+        <h3>Output:</h3>
+        <pre id='o'># Code prints here...</pre>
+    </div>
+    <div class='card'>
+        <h3>Feedback Submission Portal</h3>
+        <textarea id='f' placeholder='Report bugs directly to the dashboard...'></textarea>
+        <button onclick='fb()'>Submit Feedback</button>
+    </div>
+    <script>
+        function gen() {
+            const p = document.getElementById('p').value;
+            if(!p.trim()) return;
+            document.getElementById('s').style.display = 'block';
+            fetch('/generate', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({prompt: p})
+            }).then(r => r.json()).then(d => {
+                document.getElementById('s').style.display = 'none';
+                document.getElementById('o').innerText = d.code || d.message;
+                if(d.code) location.reload();
+            });
+        }
+        function fb() {
+            const f = document.getElementById('f').value;
+            fetch('/feedback', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({message: f})
+            }).then(() => alert('Saved to Database!'));
+        }
+    </script>
+</body>
+</html>
+"""
 
-INDEX_HTML = f"""<!DOCTYPE html><html><head><style>{CSS}</style><title>AI Studio</title></head><body><div class='card'><a href='/logout' style='color:#94a3b8;float:right;'>Logout</a><h2>AI Dashboard Pro 🚀</h2><p>Account Profile: <b>{{{{current_user.username}}}}</b> | Balance: <span style='color:#38bdf8'>{{% if current_user.is_premium %}}👑 Premium Access{{% else %}}{{{{current_user.tokens}}}} / 15 Available{{% endif %}}</span></p>{{% if not current_user.is_premium and current_user.tokens <= 0 %}}<div style='background:#7c3aed;padding:10px;border-radius:6px;text-align:center;'>Tokens exhausted. 25h lock active. Upgrade via Stripe.</div>{{% endif %}}</div><div class='card'><textarea id='p' placeholder='Describe function requirements...'></textarea><button onclick='gen()'>Process Request Matrix</button><p id='s' style='color:#fbbf24;display:none;text-align:center;'>Processing custom backprop layers...</p></div><div class='card'><h3>Output:</h3><pre id='o'># Code prints here...</pre></div><div class='card'><h3>Feedback Submission Portal</h3><textarea id='f' placeholder='Report bugs directly to the dashboard...'></textarea><button onclick='fb()'>Submit Feedback</button></div><script>function gen() {{const p=document.getElementById('p').value;if(!p.trim())return;document.getElementById('s').style.display='block';fetch('/generate',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{prompt:p}})}}).then(r=>r.json()).then(d=>{{document.getElementById('s').style.display='none';document.getElementById('o').innerText=d.code||d.message;if(d.code)location.reload();}})}}function fb() {{const f=document.getElementById('f').value;fetch('/feedback',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{message:f}})}}).then(()=>alert('Saved to Database!'))}}</script></body></html>"""
-
-PORTAL_HTML = f"""<!DOCTYPE html><html><head><style>{CSS}</style><title>Access Portal</title></head><body><div class='box card'><h2>{{{{title}}}}</h2>{{% with m=get_flashed_messages() %}}{% if m %}<p style='color:#f87171'>{{{{m}}}}</p>{% endif %}}{{% endwith %}}<form method='POST'><input type='text' name='u' placeholder='Username' required><input type='password' name='p' placeholder='Password' required><button type='submit'>Access Platform</button></form><p style='text-align:center;'>{{% if title=='Login' %}}<a href='/register' style='color:#38bdf8'>Register</a>{{% else %}}<a href='/login' style='color:#38bdf8'>Login</a>{{% endif %}}</p></div></body></html>"""
+PORTAL_HTML = """
+<!DOCTYPE html>
+<html>
+<head>
+    <style>
+        body{font-family:sans-serif;background:#0f172a;color:#fff;max-width:600px;margin:40px auto;padding:10px}
+        .card{background:#1e293b;padding:20px;border-radius:8px;margin-bottom:15px}
+        input,textarea{width:100%;padding:10px;margin:8px 0;background:#0f172a;color:#fff;border:1px solid #475569;border-radius:6px;box-sizing:border-box}
+        button{width:100%;padding:12px;background:#38bdf8;border:none;color:#0f172a;font-weight:bold;border-radius:6px;cursor:pointer}
+    </style>
+    <title>Access Portal</title>
+</head>
+<body>
+    <div class='box card'>
+        <h2>{{ title }}</h2>
+        {% with m = get_flashed_messages() %}
+            {% if m %}
+                <p style='color:#f87171'>{{ m[0] }}</p>
+            {% endif %}
+        {% endwith %}
+        <form method='POST'>
+            <input type='text' name='u' placeholder='Username' required>
+            <input type='password' name='p' placeholder='Password' required>
+            <button type='submit'>Access Platform</button>
+        </form>
+        <p style='text-align:center;'>
+            {% if title == 'Login' %}
+                <a href='/register' style='color:#38bdf8'>Register</a>
+            {% else %}
+                <a href='/login' style='color:#38bdf8'>Login</a>
+            {% endif %}
+        </p>
+    </div>
+</body>
+</html>
+"""
 
 class User(UserMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -88,15 +190,14 @@ def gen_code():
     p = request.json.get('prompt', '')
     clean_code = None
     
-    # SMART RETRY LOOP: Keeps trying for 45 seconds to let the free AI engine wake up cleanly
     for attempt in range(3):
         try:
-            response = requests.post(f"{AI_ENGINE_URL}/compute", json={'prompt': p}, timeout=15)
+            response = requests.post(AI_ENGINE_URL + "/compute", json={'prompt': p}, timeout=15)
             clean_code = response.json().get('code')
             if clean_code:
                 break
         except Exception:
-            time.sleep(15) # Wait 15 seconds for server spinoff initialization before retry
+            time.sleep(15)
 
     if not clean_code:
         clean_code = "# The AI Engine is waking up from sleep mode. Please try clicking generate again in 10 seconds."
@@ -132,4 +233,3 @@ def webhook():
 
 with app.app_context(): 
     db.create_all()
-
