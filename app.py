@@ -1,235 +1,76 @@
-import os, secrets, datetime, requests, time
-from flask import Flask, render_template_string, request, redirect, url_for, flash, jsonify
-from flask_sqlalchemy import SQLAlchemy
-from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
-from werkzeug.security import generate_password_hash, check_password_hash
-import stripe
-
-app = Flask(__name__)
-app.config.update(SECRET_KEY=secrets.token_hex(16), SQLALCHEMY_DATABASE_URI='sqlite:///saas.db', SQLALCHEMY_TRACK_MODIFICATIONS=False)
-db = SQLAlchemy(app)
-lm = LoginManager(app)
-lm.login_view = 'login'
-
-# HARDCODED LIVE VALUES PROVIDED BY USER
-stripe.api_key = "sk_test_51Tke3WRsVgVw9kTXB7nWOrvb1jGUnCuTAqwgcX5OA7r7hxVh534pcyg5Y0D989GwT4CQmwsfN9SezJyb8gEdjXDF00OEi2JoDS"
-AI_ENGINE_URL = "https://ai-backend-engine.onrender.com"
-
-# REMOVED F-STRING STYLING LAYER TO PREVENT BRACE SYNTAX ERRORS
-INDEX_HTML = """
-<!DOCTYPE html>
-<html>
-<head>
-    <style>
-        body{font-family:sans-serif;background:#0f172a;color:#fff;max-width:600px;margin:40px auto;padding:10px}
-        .card{background:#1e293b;padding:20px;border-radius:8px;margin-bottom:15px}
-        input,textarea{width:100%;padding:10px;margin:8px 0;background:#0f172a;color:#fff;border:1px solid #475569;border-radius:6px;box-sizing:border-box}
-        button{width:100%;padding:12px;background:#38bdf8;border:none;color:#0f172a;font-weight:bold;border-radius:6px;cursor:pointer}
-        pre{background:#020617;padding:15px;color:#34d399;overflow-x:auto;border-radius:6px}
-    </style>
-    <title>AI Studio</title>
-</head>
-<body>
-    <div class='card'>
-        <a href='/logout' style='color:#94a3b8;float:right;'>Logout</a>
-        <h2>AI Dashboard Pro 🚀</h2>
-        <p>Account Profile: <b>{{ current_user.username }}</b> | Balance: 
-            <span style='color:#38bdf8'>
-                {% if current_user.is_premium %}👑 Premium Access{% else %}{{ current_user.tokens }} / 15 Available{% endif %}
-            </span>
-        </p>
-        {% if not current_user.is_premium and current_user.tokens <= 0 %}
-            <div style='background:#7c3aed;padding:10px;border-radius:6px;text-align:center;'>
-                Tokens exhausted. 25h lock active. Upgrade via Stripe.
-            </div>
-        {% endif %}
-    </div>
-    <div class='card'>
-        <textarea id='p' placeholder='Describe function requirements...'></textarea>
-        <button onclick='gen()'>Process Request Matrix</button>
-        <p id='s' style='color:#fbbf24;display:none;text-align:center;'>Processing custom backprop layers...</p>
-    </div>
-    <div class='card'>
-        <h3>Output:</h3>
-        <pre id='o'># Code prints here...</pre>
-    </div>
-    <div class='card'>
-        <h3>Feedback Submission Portal</h3>
-        <textarea id='f' placeholder='Report bugs directly to the dashboard...'></textarea>
-        <button onclick='fb()'>Submit Feedback</button>
-    </div>
-    <script>
-        function gen() {
-            const p = document.getElementById('p').value;
-            if(!p.trim()) return;
-            document.getElementById('s').style.display = 'block';
-            fetch('/generate', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({prompt: p})
-            }).then(r => r.json()).then(d => {
-                document.getElementById('s').style.display = 'none';
-                document.getElementById('o').innerText = d.code || d.message;
-                if(d.code) location.reload();
-            });
-        }
-        function fb() {
-            const f = document.getElementById('f').value;
-            fetch('/feedback', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({message: f})
-            }).then(() => alert('Saved to Database!'));
-        }
-    </script>
-</body>
-</html>
-"""
-
-PORTAL_HTML = """
-<!DOCTYPE html>
-<html>
-<head>
-    <style>
-        body{font-family:sans-serif;background:#0f172a;color:#fff;max-width:600px;margin:40px auto;padding:10px}
-        .card{background:#1e293b;padding:20px;border-radius:8px;margin-bottom:15px}
-        input,textarea{width:100%;padding:10px;margin:8px 0;background:#0f172a;color:#fff;border:1px solid #475569;border-radius:6px;box-sizing:border-box}
-        button{width:100%;padding:12px;background:#38bdf8;border:none;color:#0f172a;font-weight:bold;border-radius:6px;cursor:pointer}
-    </style>
-    <title>Access Portal</title>
-</head>
-<body>
-    <div class='box card'>
-        <h2>{{ title }}</h2>
-        {% with m = get_flashed_messages() %}
-            {% if m %}
-                <p style='color:#f87171'>{{ m[0] }}</p>
-            {% endif %}
-        {% endwith %}
-        <form method='POST'>
-            <input type='text' name='u' placeholder='Username' required>
-            <input type='password' name='p' placeholder='Password' required>
-            <button type='submit'>Access Platform</button>
-        </form>
-        <p style='text-align:center;'>
-            {% if title == 'Login' %}
-                <a href='/register' style='color:#38bdf8'>Register</a>
-            {% else %}
-                <a href='/login' style='color:#38bdf8'>Login</a>
-            {% endif %}
-        </p>
-    </div>
-</body>
-</html>
-"""
-
-class User(UserMixin, db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    username = db.Column(db.String(150), unique=True, nullable=False)
-    password = db.Column(db.String(256), nullable=False)
-    tokens = db.Column(db.Integer, default=15)
-    is_premium = db.Column(db.Boolean, default=False)
-    last_reset = db.Column(db.DateTime, default=datetime.datetime.utcnow)
-
-class Hist(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, nullable=False)
-    prompt = db.Column(db.Text, nullable=False)
-    response = db.Column(db.Text, nullable=False)
-
-class Feedback(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, nullable=False)
-    message = db.Column(db.Text, nullable=False)
-
+import os,secrets,datetime as dt,requests as r,time;from flask import Flask,render_template_string as rt,request as req,redirect as red,url_for as url,flash,jsonify;from flask_sqlalchemy import SQLAlchemy;from flask_login import LoginManager,UserMixin,login_user,logout_user,login_required,current_user;from werkzeug.security import generate_password_hash as gh,check_password_hash as ch;import stripe
+app=Flask(__name__);app.config.update(SECRET_KEY=secrets.token_hex(8),SQLALCHEMY_DATABASE_URI='sqlite:///s.db',SQLALCHEMY_TRACK_MODIFICATIONS=False);db=SQLAlchemy(app);lm=LoginManager(app);lm.login_view='login'
+stripe.api_key="sk_test_51Tke3WRsVgVw9kTXB7nWOrvb1jGUnCuTAqwgcX5OA7r7hxVh534pcyg5Y0D989GwT4CQmwsfN9SezJyb8gEdjXDF00OEi2JoDS"
+E_URL="https://onrender.com"
+S="body{font-family:sans-serif;background:#0f172a;color:#fff;max-width:500px;margin:20px auto;padding:10px}.c{background:#1e293b;padding:15px;border-radius:6px;margin-bottom:10px}input,textarea{width:100%;padding:8px;margin:5px 0;background:#0f172a;color:#fff;border:1px solid #475569;border-radius:6px;box-sizing:border-box}button{width:100%;padding:10px;background:#38bdf8;border:none;color:#0f172a;font-weight:bold;border-radius:6px;cursor:pointer}"
+H=f"""<!DOCTYPE html><html><head><style>{S}</style><title>AI</title></head><body><div class='c'><a href='/logout' style='color:#94a3b8;float:right;text-decoration:none;'>Logout</a><h2>AI Dashboard 🚀</h2><p>User: <b>{{{{current_user.username}}}}</b> | Tokens: <span style='color:#38bdf8;font-weight:bold;'>{{%if current_user.is_premium%}}👑 Pro{{%else%}}<span id="tc">{{{{current_user.tokens}}}}</span> / 15{{%endif%}}</span></p>{{%if not current_user.is_premium and current_user.tokens <= 0%}}<div style='background:#7c3aed;padding:10px;border-radius:6px;text-align:center;'><p style='margin:0 0 5px 0;'>⚠️ 0 Tokens Left.</p><form action='/pay' method='POST'><button type='submit' style='background:#fff;color:#7c3aed;'>Upgrade to Premium 👑</button></form></div>{{%endif%}}</div><div class='c'><textarea id='p' placeholder='Prompt...'></textarea><button onclick='g()'>Generate Code ✨</button><p id='s' style='color:#fbbf24;display:none;text-align:center;'>🤖 Computing array matrices...</p></div><div class='c'><h3>Output:</h3><pre id='o' style='background:#020617;padding:10px;color:#34d399;overflow-x:auto;border-radius:6px;white-space:pre-wrap;'># Ready...</pre><button style='background:#10b981;color:#fff;width:auto;' onclick='cp()'>Copy 📋</button></div><div class='c'><h3>Feedback</h3><textarea id='f'></textarea><button onclick='fb()'>Submit</button></div><script>function g(){{const p=document.getElementById('p').value;if(!p.trim())return;document.getElementById('s').style.display='block';fetch('/gen',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{p:p}})}}).then(r=>r.json()).then(d=>{{document.getElementById('s').style.display='none';if(d.c){{document.getElementById('o').innerText=d.c;const s=document.getElementById('tc');if(s&&d.r!==undefined)s.innerText=d.r;if(d.r<=0)location.reload();}}}}).catch(e=>{{document.getElementById('s').style.display='none';document.getElementById('o').innerText='# Error. Retry.';}});}}function cp(){{navigator.clipboard.writeText(document.getElementById('o').innerText);alert('Copied!');}}function fb(){{const f=document.getElementById('f').value;if(!f.trim())return;fetch('/fb',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{m:f}})}}).then(()=>{{alert('Saved!');document.getElementById('f').value='';}});}}</script></body></html>"""
+P=f"""<!DOCTYPE html><html><head><style>{S}</style><title>Portal</title></head><body><div class='c'><h2>{{{{t}}}}</h2>{{%with m=get_flashed_messages()%}}{{%if m%}}<p style='color:#f87171'>{{{{m}}}}</p>{{%endif%}}{{%endwith%}}<form method='POST'><input type='text' name='u' placeholder='Username' required><input type='password' name='p' placeholder='Password' required><button type='submit'>Submit</button></form><p style='text-align:center;'>{{%if t=='Login'%}}<a href='/register' style='color:#38bdf8'>Register</a>{{%else%}}<a href='/login' style='color:#38bdf8'>Login Here</a>{{%endif%}}</p></div></body></html>"""
+class User(UserMixin,db.Model):
+    id=db.Column(db.Integer,primary_key=True);username=db.Column(db.String(150),unique=True,nullable=False);password=db.Column(db.String(256),nullable=False);tokens=db.Column(db.Integer,default=15);is_premium=db.Column(db.Boolean,default=False);last_reset=db.Column(db.DateTime,default=dt.datetime.utcnow)
+class Hist(db.Model):id=db.Column(db.Integer,primary_key=True);user_id=db.Column(db.Integer,nullable=False);prompt=db.Column(db.Text,nullable=False);response=db.Column(db.Text,nullable=False)
+class Feedback(db.Model):id=db.Column(db.Integer,primary_key=True);user_id=db.Column(db.Integer,nullable=False);message=db.Column(db.Text,nullable=False)
 @lm.user_loader
-def load_user(uid): 
-    return db.session.get(User, int(uid))
-
-def verify_tokens(u):
-    if u.is_premium: return
-    if (datetime.datetime.utcnow() - u.last_reset).total_seconds() / 3600.0 >= 25.0 and u.tokens < 15:
-        u.tokens = 15
-        u.last_reset = datetime.datetime.utcnow()
-        db.session.commit()
-
+def load_user(uid):return db.session.get(User,int(uid))
+def v_tok(u):
+    if u.is_premium:return
+    if (dt.datetime.utcnow()-u.last_reset).total_seconds()/3600.0>=25.0 and u.tokens<15:u.tokens=15;u.last_reset=dt.datetime.utcnow();db.session.commit()
 @app.route('/')
 @login_required
-def dash(): verify_tokens(current_user); return render_template_string(INDEX_HTML)
-
-@app.route('/register', methods=['GET', 'POST'])
+def dash():v_tok(current_user);return rt(H)
+@app.route('/register',methods=['GET','POST'])
 def register():
-    if request.method == 'POST':
-        u, p = request.form.get('u'), request.form.get('p')
-        if User.query.filter_by(username=u).first(): flash('Taken.'); return redirect(url_for('register'))
-        db.session.add(User(username=u, password=generate_password_hash(p, method='scrypt')))
-        db.session.commit()
-        login_user(User.query.filter_by(username=u).first())
-        return redirect(url_for('dash'))
-    return render_template_string(PORTAL_HTML, title="Register")
-
-@app.route('/login', methods=['GET', 'POST'])
+    if req.method=='POST':
+        u,p=req.form.get('u'),req.form.get('p')
+        if User.query.filter_by(username=u).first():flash('Taken.');return red(url('register'))
+        db.session.add(User(username=u,password=gh(p,method='scrypt')));db.session.commit();login_user(User.query.filter_by(username=u).first());return red(url('dash'))
+    return rt(P,t="Register")
+@app.route('/login',methods=['GET','POST'])
 def login():
-    if request.method == 'POST':
-        user = User.query.filter_by(username=request.form.get('u')).first()
-        if user and check_password_hash(user.password, request.form.get('p')): login_user(user); return redirect(url_for('dash'))
-        flash('Invalid verification credentials.')
-    return render_template_string(PORTAL_HTML, title="Login")
-
+    if req.method=='POST':
+        user=User.query.filter_by(username=req.form.get('u')).first()
+        if user and ch(user.password,req.form.get('p')):login_user(user);return red(url('dash'))
+        flash('Invalid credentials.')
+    return rt(P,t="Login")
 @app.route('/logout')
 @login_required
-def logout(): logout_user(); return redirect(url_for('login'))
-
-@app.route('/generate', methods=['POST'])
+def logout():logout_user();return red(url('login'))
+@app.route('/gen',methods=['POST'])
 @login_required
 def gen_code():
-    verify_tokens(current_user)
-    if current_user.tokens <= 0 and not current_user.is_premium:
-        return jsonify({'message': 'Out of tokens. Wait 25 hours or upgrade to Premium.'}), 402
-    
-    p = request.json.get('prompt', '')
-    clean_code = None
-    
-    for attempt in range(3):
+    v_tok(current_user)
+    if current_user.tokens<=0 and not current_user.is_premium:return jsonify({'message':'Expired.'}),402
+    p=req.json.get('p','');cc=None
+    for _ in range(3):
         try:
-            response = requests.post(AI_ENGINE_URL + "/compute", json={'prompt': p}, timeout=15)
-            clean_code = response.json().get('code')
-            if clean_code:
-                break
-        except Exception:
-            time.sleep(15)
-
-    if not clean_code:
-        clean_code = "# The AI Engine is waking up from sleep mode. Please try clicking generate again in 10 seconds."
-
-    if not current_user.is_premium and "waking up" not in clean_code:
-        current_user.tokens -= 1
-        if current_user.tokens == 0: current_user.last_reset = datetime.datetime.utcnow()
-    
-    db.session.add(Hist(user_id=current_user.id, prompt=p, response=clean_code))
-    db.session.commit()
-    return jsonify({'code': clean_code})
-
-@app.route('/feedback', methods=['POST'])
+            res=r.post(E_URL+"/compute",json={'prompt':"Write complex app logic: "+p},timeout=15);cc=res.json().get('code')
+            if cc:break
+        except:time.sleep(12)
+    if not cc:cc="# AI Engine waking up from sleep mode. Please try clicking generate again in 10 seconds."
+    if not current_user.is_premium and "waking up" not in cc:
+        current_user.tokens-=1
+        if current_user.tokens==0:current_user.last_reset=dt.datetime.utcnow()
+    db.session.add(Hist(user_id=current_user.id,prompt=p,response=cc));db.session.commit()
+    return jsonify({'c':cc,'r':current_user.tokens})
+@app.route('/fb',methods=['POST'])
 @login_required
-def save_feedback():
-    m = request.json.get('message', '')
-    db.session.add(Feedback(user_id=current_user.id, message=m))
-    db.session.commit()
-    return jsonify({'status': 'logged'})
-
-@app.route('/stripe-webhook', methods=['POST'])
+def save_fb():db.session.add(Feedback(user_id=current_user.id,message=req.json.get('m','')));db.session.commit();return jsonify({'status':'ok'})
+@app.route('/pay',methods=['POST'])
+@login_required
+def create_checkout():
+    try:
+        s=stripe.checkout.Session.create(line_items=[{'price_data':{'currency':'usd','product_data':{'name':'Pro Plan'},'unit_amount':2500},'quantity':1}],mode='payment',success_url=req.host_url,cancel_url=req.host_url,customer_email=current_user.username)
+        return red(s.url,code=33)
+    except Exception as e:return str(e)
+@app.route('/stripe-webhook',methods=['POST'])
 def webhook():
-    payload = request.json
-    if payload and payload.get('type') == 'checkout.session.completed':
-        email = payload['data']['object'].get('customer_details', {}).get('email')
+    payload=req.json
+    if payload and payload.get('type')=='checkout.session.completed':
+        email=payload['data']['object'].get('customer_details',{}).get('email')
         try:
-            v_session = stripe.checkout.Session.retrieve(payload['data']['object'].get('id'))
-            if v_session.payment_status == 'paid':
-                u = User.query.filter_by(username=email).first()
-                if u: u.is_premium = True; db.session.commit()
-        except: pass
-    return jsonify({'success': True}), 200
-
-with app.app_context(): 
-    db.create_all()
+            v=stripe.checkout.Session.retrieve(payload['data']['object'].get('id'))
+            if v.payment_status=='paid':
+                u=User.query.filter_by(username=email).first()
+                if u:u.is_premium=True;db.session.commit()
+        except:pass
+    return jsonify({'success':True}),200
+with app.app_context():db.create_all()
