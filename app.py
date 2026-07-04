@@ -11,7 +11,12 @@ db = SQLAlchemy(app)
 lm = LoginManager(app)
 lm.login_view = 'login'
 
-stripe.api_key = os.environ.get('STRIPE_SECRET_KEY', 'sk_test_mock')
+# Enforces your Stripe environment key without any safe fallbacks
+STRIPE_KEY = os.environ.get('sk_test_51Tke3WRsVgVw9kTXB7nWOrvb1jGUnCuTAqwgcX5OA7r7hxVh534pcyg5Y0D989GwT4CQmwsfN9SezJyb8gEdjXDF00OEi2JoDS')
+if not STRIPE_KEY:
+    raise ValueError("CRITICAL SYSTEM ERROR: STRIPE_SECRET_KEY is empty or missing in Render Environment settings!")
+
+stripe.api_key = STRIPE_KEY
 AI_ENGINE_URL = os.environ.get('AI_ENGINE_URL', 'http://localhost:5001')
 
 CSS = "body{font-family:sans-serif;background:#0f172a;color:#fff;max-width:600px;margin:40px auto;padding:10px}.card{background:#1e293b;padding:20px;border-radius:8px;margin-bottom:15px}input,textarea{width:100%;padding:10px;margin:8px 0;background:#0f172a;color:#fff;border:1px solid #475569;border-radius:6px;box-sizing:border-box}button{width:100%;padding:12px;background:#38bdf8;border:none;color:#0f172a;font-weight:bold;border-radius:6px;cursor:pointer}pre{background:#020617;padding:15px;color:#34d399;overflow-x:auto;border-radius:6px}"
@@ -122,4 +127,3 @@ def webhook():
 if __name__ == '__main__':
     with app.app_context(): db.create_all()
     app.run(host='0.0.0.0', port=5000)
-
