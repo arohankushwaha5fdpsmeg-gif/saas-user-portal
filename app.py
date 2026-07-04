@@ -17,7 +17,7 @@ if not STRIPE_KEY:
     raise ValueError("CRITICAL SYSTEM ERROR: STRIPE_SECRET_KEY is empty or missing in Render Environment settings!")
 
 stripe.api_key = STRIPE_KEY
-AI_ENGINE_URL = os.environ.get('AI_ENGINE_URL', 'http://localhost:5001')
+AI_ENGINE_URL = os.environ.get('https://ai-backend-engine.onrender.com', 'http://localhost:5001')
 
 CSS = "body{font-family:sans-serif;background:#0f172a;color:#fff;max-width:600px;margin:40px auto;padding:10px}.card{background:#1e293b;padding:20px;border-radius:8px;margin-bottom:15px}input,textarea{width:100%;padding:10px;margin:8px 0;background:#0f172a;color:#fff;border:1px solid #475569;border-radius:6px;box-sizing:border-box}button{width:100%;padding:12px;background:#38bdf8;border:none;color:#0f172a;font-weight:bold;border-radius:6px;cursor:pointer}pre{background:#020617;padding:15px;color:#34d399;overflow-x:auto;border-radius:6px}"
 
